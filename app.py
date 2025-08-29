@@ -14,16 +14,20 @@ def sum_category(total: int) -> str:
     if 25 <= total <= 33: return 'Mid'
     return 'High'
 
-# ===== EXACT load_filters from your original program =====
 def load_filters(path: str='lottery_filters_batch10.csv') -> list:
     if not os.path.exists(path):
         st.error(f"Filter file not found: {path}")
         st.stop()
     filters = []
-    with open(path, newline='', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
+    # utf-8-sig strips a possible BOM; restkey captures overflow fields (from trailing commas)
+    with open(path, newline='', encoding='utf-8-sig') as f:
+        reader = csv.DictReader(f, skipinitialspace=True, restkey="_extra")
         for raw in reader:
-            row = {k.lower(): v for k, v in raw.items()}
+            # >>> The ONLY behavioral change: skip None/blank header keys when lowercasing
+            row = {str(k).lower(): v
+                   for k, v in raw.items()
+                   if k is not None and str(k).strip() != ""}
+
             row['id'] = row.get('id', row.get('fid', '')).strip()
             for key in ('name', 'applicable_if', 'expression'):
                 if key in row and isinstance(row[key], str):
@@ -35,12 +39,11 @@ def load_filters(path: str='lottery_filters_batch10.csv') -> list:
                 row['applicable_code'] = compile(applicable, '<applicable>', 'eval')
                 row['expr_code'] = compile(expr, '<expr>', 'eval')
             except SyntaxError as e:
-                st.error(f"Syntax error in filter {row['id']}: {e}")
+                st.error(f"Syntax error in filter {row.get('id','')}: {e}")
                 continue
             row['enabled_default'] = row.get('enabled', '').lower() == 'true'
             filters.append(row)
     return filters
-# (source: your uploaded file)  :contentReference[oaicite:1]{index=1}
 
 # ===== Pair parsing & generation =====
 def _clean_pairs(raw: str):
