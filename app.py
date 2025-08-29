@@ -14,7 +14,7 @@ def sum_category(total: int) -> str:
     if 25 <= total <= 33: return 'Mid'
     return 'High'
 
-# ===== Filters loader (unchanged) =====
+# ===== EXACT load_filters from your original program =====
 def load_filters(path: str='lottery_filters_batch10.csv') -> list:
     if not os.path.exists(path):
         st.error(f"Filter file not found: {path}")
@@ -24,22 +24,23 @@ def load_filters(path: str='lottery_filters_batch10.csv') -> list:
         reader = csv.DictReader(f)
         for raw in reader:
             row = {k.lower(): v for k, v in raw.items()}
-            row['id'] = (row.get('id') or row.get('fid') or '').strip()
-            for key in ('name','applicable_if','expression'):
+            row['id'] = row.get('id', row.get('fid', '')).strip()
+            for key in ('name', 'applicable_if', 'expression'):
                 if key in row and isinstance(row[key], str):
                     row[key] = row[key].strip().strip('"').strip("'")
-            row['expression'] = (row.get('expression') or '').replace('!==','!=')
+            row['expression'] = row.get('expression', '').replace('!==', '!=')
             applicable = row.get('applicable_if') or 'True'
-            expr       = row.get('expression')    or 'False'
+            expr = row.get('expression') or 'False'
             try:
                 row['applicable_code'] = compile(applicable, '<applicable>', 'eval')
-                row['expr_code']       = compile(expr,       '<expr>',       'eval')
+                row['expr_code'] = compile(expr, '<expr>', 'eval')
             except SyntaxError as e:
                 st.error(f"Syntax error in filter {row['id']}: {e}")
                 continue
-            row['enabled_default'] = (row.get('enabled','').lower() == 'true')
+            row['enabled_default'] = row.get('enabled', '').lower() == 'true'
             filters.append(row)
     return filters
+# (source: your uploaded file)  :contentReference[oaicite:1]{index=1}
 
 # ===== Pair parsing & generation =====
 def _clean_pairs(raw: str):
@@ -107,7 +108,6 @@ def _in_any_zone(pct: int) -> bool:
 
 # ===== Full enumeration (global boxes) =====
 def all_boxes_full_enumeration() -> list[str]:
-    # 2002 unique boxes (with repetition) in nondecreasing order
     return [''.join(str(d) for d in comb) for comb in combinations_with_replacement(range(10),5)]
 
 def build_global_box_percentiles():
@@ -118,10 +118,10 @@ def build_global_box_percentiles():
 
 GLOBAL_BOX_PCT = None  # lazy init
 
-# ===== Streamlit App =====
+# ===== App =====
 def main():
     global GLOBAL_BOX_PCT
-    filters = load_filters()
+    filters = load_filters()  # ← uses your exact loader
 
     st.sidebar.header("🔢 DC-5 Filter Tracker Full")
     select_all = st.sidebar.checkbox("Select/Deselect All Filters", value=True)
@@ -130,6 +130,7 @@ def main():
     prev_seed = st.sidebar.text_input("Draw 2-back (optional):", help="Enter the draw two draws before the combo").strip()
     prev_prev = st.sidebar.text_input("Draw 3-back (optional):", help="Enter the draw three draws before the combo").strip()
 
+    # New inputs only: Pair Groups
     pair_group_a_str = st.sidebar.text_input("Pair Group A (comma-separated two-digit pairs)", help="Example: 01,27,56  (min 1, max 20)").strip()
     pair_group_b_str = st.sidebar.text_input("Pair Group B (comma-separated two-digit pairs)", help="Example: 67,89,12  (min 1, max 20)").strip()
 
@@ -142,7 +143,7 @@ def main():
         st.sidebar.error("Draw 1-back must be exactly 5 digits")
         return
 
-    # Build context (unchanged)
+    # Context (unchanged)
     seed_digits = [int(d) for d in seed]
     prev_digits = [int(d) for d in prev_seed if d.isdigit()]
     prev_prev_digits = [int(d) for d in prev_prev if d.isdigit()]
@@ -185,7 +186,7 @@ def main():
             'Counter': Counter
         }
 
-    # Parse & validate pair groups
+    # Parse pair groups
     pair_group_a = _clean_pairs(pair_group_a_str)
     pair_group_b = _clean_pairs(pair_group_b_str)
     if len(pair_group_a)<1:
@@ -200,13 +201,11 @@ def main():
     # 1) Generate all straights
     straights = generate_permutation_pool(seed, pair_group_a, pair_group_b)
 
-    # 2) Primary Percentile Filter — union of Local OR Global
-    # Local (on generated straights)
+    # 2) Primary Percentile (union: local OR global)
     local_sums = [sum(int(c) for c in s) for s in straights]
     local_pcts = _percentile_ranks(local_sums)
     local_keep = {s for s,p in zip(straights, local_pcts) if _in_any_zone(int(round(p)))}
 
-    # Global (based on full-enumeration boxes)
     if GLOBAL_BOX_PCT is None:
         GLOBAL_BOX_PCT = build_global_box_percentiles()
     global_keep = {s for s in straights if _in_any_zone(GLOBAL_BOX_PCT.get(''.join(sorted(s)), 0))}
@@ -217,7 +216,7 @@ def main():
     boxes = sorted({''.join(sorted(s)) for s in straights_after_ppf})
 
     # 4) Full enumeration comparison (after dedup; before manual filters)
-    full_boxes = set(all_boxes_full_enumeration())  # 2,002
+    full_boxes = set(all_boxes_full_enumeration())  # 2,002 total
     gen_boxes  = set(boxes)
     intersection = sorted(gen_boxes & full_boxes)
     missing     = sorted(full_boxes - gen_boxes)
